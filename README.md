@@ -1,3 +1,19 @@
+# Emojiful — форк для Minecraft 1.21.1 (NeoForge 21.1.200)
+
+Форк [Emojiful](https://github.com/InnovativeOnlineIndustries/Emojiful) `1.21-5.2.4` (MIT).
+Все изменения описаны в [FORK_CHANGES.md](FORK_CHANGES.md): правильная сборка кадров GIF, WebP, кэш и манифест,
+предзагрузка, быстрый поиск эмодзи в тексте, эмодзи на табличках, `text_display`, никах и в TAB.
+
+Сборка (нужен JDK 21):
+
+```
+./gradlew :NeoForge:build -x javadoc -x javadocJar
+```
+
+Готовый jar: `NeoForge/build/libs/Emojiful-Neoforge-1.21-5.2.4-fix.1-all.jar`. Мод ставится и на сервер, и игрокам.
+
+---
+
 # Emojiful
 
 ![Emojiful Logo](src/main/resources/assets/emojiful/logo.png)

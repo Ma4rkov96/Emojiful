@@ -10,24 +10,16 @@ import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderStateShard;
 import net.minecraft.client.renderer.RenderType;
-import org.apache.commons.lang3.tuple.Pair;
+import com.hrznstudio.emojiful.render.EmojiRenderInfo;
+import net.minecraft.resources.ResourceLocation;
 import org.joml.Matrix4f;
-import org.lwjgl.opengl.GL11;
-import org.w3c.dom.Node;
+import com.hrznstudio.emojiful.render.EmojiFontHelper;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.font.GlyphRenderTypes;
 
-import javax.imageio.ImageIO;
-import javax.imageio.ImageReader;
-import javax.imageio.metadata.IIOMetadata;
-import javax.imageio.metadata.IIOMetadataNode;
-import java.awt.image.BufferedImage;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-
-import static org.lwjgl.opengl.GL11.GL_LINEAR;
-import static org.lwjgl.opengl.GL11.GL_NEAREST;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 public class EmojiUtil extends RenderType {
 
@@ -35,69 +27,52 @@ public class EmojiUtil extends RenderType {
         super(string, vertexFormat, mode, i, bl, bl2, runnable, runnable2);
     }
 
+    private static final Map<ResourceLocation, GlyphRenderTypes> RENDER_TYPES = new ConcurrentHashMap<>();
+
+    /**
+     * Emojis use exactly the render types of vanilla text with their own texture, so they share depth
+     * behaviour with the text around them: normal GUI/world text, see-through name tags, and the
+     * polygon offset used by signs and text displays (prevents z-fighting with the sign board).
+     */
+    public static RenderType renderType(ResourceLocation texture, Font.DisplayMode mode) {
+        return RENDER_TYPES.computeIfAbsent(texture, GlyphRenderTypes::createForColorTexture).select(mode);
+    }
+
+    public static RenderType renderType(ResourceLocation texture) {
+        return renderType(texture, Font.DisplayMode.NORMAL);
+    }
+
+    /** Kept for API compatibility. */
     public static RenderType createRenderType(Emoji emoji) {
-        RenderType.CompositeState state = RenderType.CompositeState.builder()
-                .setShaderState(new RenderStateShard.ShaderStateShard(GameRenderer::getRendertypeTextShader))
-                .setTextureState(new RenderStateShard.TextureStateShard(emoji.getResourceLocationForBinding(), false, false))
-                .setTransparencyState(new RenderStateShard.TransparencyStateShard("translucent_transparency", () -> {
-                    RenderSystem.enableBlend();
-                    RenderSystem.blendFuncSeparate(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA, GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);
-                }, () -> {
-                    RenderSystem.disableBlend();
-                    RenderSystem.defaultBlendFunc();
-                }))/*.setAlphaState(new RenderStateShard.AlphaStateShard(0.003921569F))*/.setLightmapState(new RenderStateShard.LightmapStateShard(true)).createCompositeState(false);
-        return RenderType.create("emoji_render", DefaultVertexFormat.POSITION_COLOR_TEX_LIGHTMAP, VertexFormat.Mode.QUADS, 256, false, true, state);
+        return renderType(emoji.getRenderInfo().texture());
     }
 
     public static float renderEmoji(Emoji emoji, float x, float y, Matrix4f matrix, MultiBufferSource buffer, int packedLight) {
-        float textureSize = 16;
-        float textureX = 0 / textureSize;
-        float textureY = 0 / textureSize;
-        float textureOffset = 16.0F / textureSize;
-        float size = 10f;
-        float offsetY = 1.0F;
-        float offsetX = 0.0F;
-
-        VertexConsumer builder = buffer.getBuffer(createRenderType(emoji));
-
-        builder.addVertex(matrix, x - offsetX, y - offsetY, 0.0f).setColor(255, 255, 255, 255).setUv(textureX, textureY).setLight(packedLight);
-        builder.addVertex(matrix, x - offsetX, y + size - offsetY, 0.0F).setColor(255, 255, 255, 255).setUv(textureX, textureY + textureOffset).setLight(packedLight);
-        builder.addVertex(matrix, x - offsetX + size, y + size - offsetY, 0.0F).setColor(255, 255, 255, 255).setUv(textureX + textureOffset, textureY + textureOffset).setLight(packedLight);
-        builder.addVertex(matrix, x - offsetX + size, y - offsetY, 0.0F).setColor(255, 255, 255, 255).setUv(textureX + textureOffset, textureY / textureSize).setLight(packedLight);
-
-        return 10f;
+        return renderEmoji(emoji, x, y, matrix, buffer, packedLight, 1.0F, Font.DisplayMode.NORMAL);
     }
 
+    /**
+     * @param alpha text alpha, so emojis fade out with chat text and are faint in the see-through name tag pass
+     */
+    public static float renderEmoji(Emoji emoji, float x, float y, Matrix4f matrix, MultiBufferSource buffer, int packedLight, float alpha, Font.DisplayMode mode) {
+        float size = EmojiFontHelper.EMOJI_ADVANCE;
+        int a = Math.max(0, Math.min(255, Math.round(alpha * 255)));
+        if (a <= 3) return size;
+        EmojiRenderInfo info = emoji.getRenderInfo();
+        float top = y - 1.0F;
+        float bottom = top + size;
+
+        VertexConsumer builder = buffer.getBuffer(renderType(info.texture(), mode));
+        builder.addVertex(matrix, x, top, 0.0F).setColor(255, 255, 255, a).setUv(info.u0(), info.v0()).setLight(packedLight);
+        builder.addVertex(matrix, x, bottom, 0.0F).setColor(255, 255, 255, a).setUv(info.u0(), info.v1()).setLight(packedLight);
+        builder.addVertex(matrix, x + size, bottom, 0.0F).setColor(255, 255, 255, a).setUv(info.u1(), info.v1()).setLight(packedLight);
+        builder.addVertex(matrix, x + size, top, 0.0F).setColor(255, 255, 255, a).setUv(info.u1(), info.v0()).setLight(packedLight);
+        return size;
+    }
+
+    /** Escapes a literal string for use inside a regular expression. */
     public static String cleanStringForRegex(String string) {
-        return string.replaceAll("\\)", "\\\\)").replaceAll("\\(", "\\\\(").replaceAll("\\|", "\\\\|").replaceAll("\\*", "\\\\*");
-    }
-
-    public static List<Pair<BufferedImage, Integer>> splitGif(File file) throws IOException {
-        List<Pair<BufferedImage, Integer>> images = new ArrayList<>();
-        ImageReader reader = ImageIO.getImageReadersBySuffix("gif").next();
-        reader.setInput(ImageIO.createImageInputStream(new FileInputStream(file)), false);
-        IIOMetadata metadata = reader.getImageMetadata(0);
-        String metaFormatName = metadata.getNativeMetadataFormatName();
-        for (int i = 0; i < reader.getNumImages(true); i++) {
-            int frameLength = 1;
-            BufferedImage image = reader.read(i);
-            BufferedImage newImage = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_4BYTE_ABGR);
-            newImage.getGraphics().drawImage(image, 0, 0, null);
-            IIOMetadataNode root = (IIOMetadataNode) reader.getImageMetadata(i).getAsTree(metaFormatName);
-            // Find GraphicControlExtension node
-            int nNodes = root.getLength();
-            for (int j = 0; j < nNodes; j++) {
-                Node node = root.item(j);
-                if (node.getNodeName().equalsIgnoreCase("GraphicControlExtension")) {
-                    // Get delay value
-                    frameLength = Integer.parseInt(((IIOMetadataNode) node).getAttribute("delayTime"));
-                    // Check if delay is bugged
-                    break;
-                }
-            }
-            images.add(Pair.of(newImage, frameLength));
-        }
-        return images;
+        return Pattern.quote(string);
     }
 
 }

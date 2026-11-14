@@ -36,16 +36,23 @@ runs {
 
         dependencies {
             runtime "com.esotericsoftware.yamlbeans:yamlbeans:1.17"
+            runtime "com.twelvemonkeys.imageio:imageio-webp:${twelvemonkeys_version}"
         }
     }
 
     client {
         // Comma-separated list of namespaces to load gametests from. Empty = all namespaces.
         systemProperty 'forge.enabledGameTestNamespaces', project.mod_id
+        workingDirectory project.file('run/client')
+        // ./gradlew :NeoForge:runClient -PtestJoin=localhost  -> joins a local test server directly
+        if (project.hasProperty('testJoin')) {
+            programArguments.addAll '--quickPlayMultiplayer', project.property('testJoin')
+        }
     }
 
     server {
         systemProperty 'forge.enabledGameTestNamespaces', project.mod_id
+        workingDirectory project.file('run/server')
         programArgument '--nogui'
     }
 
@@ -77,10 +84,33 @@ tasks.named("build").configure {
     dependsOn("jarJar")
 }
 
+// NeoForge 21.1.x ships ASM 9.8 on the module path; make the dev run classpath use the same version
+// (NeoGradle 7.0.145 otherwise puts ASM 9.5 next to it and the dev launcher refuses to start).
+configurations.configureEach {
+    resolutionStrategy.eachDependency { details ->
+        if (details.requested.group == 'org.ow2.asm') {
+            details.useVersion '9.8'
+        }
+    }
+}
+
 dependencies {
     implementation "net.neoforged:neoforge:${neo_version}"
     implementation group: "com.esotericsoftware.yamlbeans", name: "yamlbeans", version: "1.17"
     jarJar group: "com.esotericsoftware.yamlbeans", name: "yamlbeans", version: "[1.17]"
+    // WebP decoding (TwelveMonkeys ImageIO) and its runtime dependencies, nested into the mod jar
+    [
+        "com.twelvemonkeys.imageio:imageio-webp",
+        "com.twelvemonkeys.imageio:imageio-core",
+        "com.twelvemonkeys.imageio:imageio-metadata",
+        "com.twelvemonkeys.common:common-lang",
+        "com.twelvemonkeys.common:common-io",
+        "com.twelvemonkeys.common:common-image",
+    ].each { lib ->
+        def (g, n) = lib.split(':')
+        implementation group: g, name: n, version: twelvemonkeys_version
+        jarJar group: g, name: n, version: "[${twelvemonkeys_version}]"
+    }
     compileOnly project(":Common")
 }
 

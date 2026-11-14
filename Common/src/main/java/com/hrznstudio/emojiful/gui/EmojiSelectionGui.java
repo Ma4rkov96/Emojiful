@@ -185,16 +185,40 @@ public class EmojiSelectionGui extends IDrawableGuiListener {
     public boolean mouseScrolled(double mouseX, double mouseY, double delta, double d) {
         if (categorySelectionArea.contains((int) mouseX, (int) mouseY)) {
             categoryPointer -= d;
-            categoryPointer = Mth.clamp(categoryPointer, 0, ClientEmojiHandler.CATEGORIES.size() - Math.min(categoriesPerScroll, Constants.EMOJI_MAP.size()));
+            categoryPointer = Mth.clamp(categoryPointer, 0, maxCategoryPointer());
             return true;
         }
         if (selectionArea.contains((int) mouseX, (int) mouseY)) {
             selectionPointer -= d;
             selectionPointer = Mth.clamp(selectionPointer, 1, Math.max(1, getLineAmount() - 5));
-            categoryPointer = Mth.clamp(Arrays.asList(ClientEmojiHandler.CATEGORIES).indexOf(getCategory(selectionPointer)), 0, ClientEmojiHandler.CATEGORIES.size() - Math.min(categoriesPerScroll, Constants.EMOJI_MAP.size()));
+            keepCategoryVisible(getCategory(selectionPointer));
             return true;
         }
         return false;
+    }
+
+    private int visibleCategories() {
+        return Math.min(categoriesPerScroll, Constants.EMOJI_MAP.size());
+    }
+
+    private int maxCategoryPointer() {
+        return Math.max(0, ClientEmojiHandler.CATEGORIES.size() - visibleCategories());
+    }
+
+    /**
+     * Scrolls the category column only as far as needed to keep the current category visible,
+     * instead of jumping. (The original looked the category up in {@code Arrays.asList(CATEGORIES)},
+     * a one-element list, so it always got -1 and reset the column to the top.)
+     */
+    private void keepCategoryVisible(EmojiCategory category) {
+        int index = category == null ? -1 : ClientEmojiHandler.CATEGORIES.indexOf(category);
+        if (index < 0) return;
+        if (index < categoryPointer) {
+            categoryPointer = index;
+        } else if (index >= categoryPointer + visibleCategories()) {
+            categoryPointer = index - visibleCategories() + 1;
+        }
+        categoryPointer = Mth.clamp(categoryPointer, 0, maxCategoryPointer());
     }
 
 

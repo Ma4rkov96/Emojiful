@@ -13,6 +13,9 @@ public class ForgeConfigHelper implements IConfigHelper {
     public static ModConfigSpec.BooleanValue loadCustom;
     public static ModConfigSpec.BooleanValue loadDatapack;
     public static ModConfigSpec.BooleanValue loadGifEmojis;
+    public static ModConfigSpec.BooleanValue prefetchServerEmojis;
+    public static ModConfigSpec.ConfigValue<String> customAssetsUrl;
+    public static ModConfigSpec.ConfigValue<String> manifestUrl;
 
     public static ModConfigSpec.BooleanValue shortEmojiReplacement;
 
@@ -31,6 +34,9 @@ public class ForgeConfigHelper implements IConfigHelper {
         loadTwemoji = builder.comment("Loads Twemojis used in sites like Twitter and Discord").translation("emojiful.midnightconfig.loadTwemoji").define("twemoji", false);
         loadCustom = builder.comment("Loads custom emojis provided by Emojiful").translation("emojiful.midnightconfig.enableLoadCustom").define("custom", true);
         loadDatapack = builder.comment("Loads datapack emojis provided by the server you join").translation("emojiful.midnightconfig.enableLoadDatapack").define("datapack", true);
+        prefetchServerEmojis = builder.comment("Download all emojis of the server you join in the background, so they appear without a loading icon").define("prefetch_server_emojis", true);
+        customAssetsUrl = builder.comment("Base URL of the built-in emoji set (Categories.yml, category files and images)").define("custom_assets_url", com.hrznstudio.emojiful.Constants.DEFAULT_ASSETS_URL);
+        manifestUrl = builder.comment("Manifest with SHA-1 of every emoji file, used to validate the cache with a single request. Empty to disable").define("manifest_url", com.hrznstudio.emojiful.Constants.DEFAULT_MANIFEST_URL);
         builder.pop();
         builder.pop();
         builder.push("ProfanityFilter").translation("emojiful.midnightconfig.profanityFilter");
@@ -88,5 +94,20 @@ public class ForgeConfigHelper implements IConfigHelper {
     @Override
     public boolean loadDatapack() {
         return loadDatapack.get();
+    }
+
+    @Override
+    public boolean prefetchServerEmojis() {
+        return prefetchServerEmojis.get();
+    }
+
+    @Override
+    public String customAssetsUrl() {
+        return customAssetsUrl.get();
+    }
+
+    @Override
+    public String manifestUrl() {
+        return manifestUrl.get();
     }
 }

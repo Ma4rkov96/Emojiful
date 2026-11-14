@@ -34,15 +34,34 @@ import java.util.stream.Collectors;
 public class CommonClass {
 
 
+    /**
+     * Fetches a small text file (emoji lists) with timeouts. The last good copy is kept on disk and used
+     * when the host is unreachable, so the built-in set still appears offline or when GitHub is blocked.
+     */
     public static String readStringFromURL(String requestURL) {
+        File copy = new File("emojiful/cache/v2/text", Integer.toHexString(requestURL.hashCode()) + ".txt");
         try {
-            try (Scanner scanner = new Scanner(new URL(requestURL).openStream(),
-                    StandardCharsets.UTF_8.toString())) {
-                scanner.useDelimiter("\\A");
-                return scanner.hasNext() ? scanner.next() : "";
+            java.net.HttpURLConnection connection = (java.net.HttpURLConnection) java.net.URI.create(requestURL).toURL().openConnection();
+            connection.setConnectTimeout(10_000);
+            connection.setReadTimeout(20_000);
+            connection.setRequestProperty("User-Agent", "Emojiful (Minecraft mod)");
+            try {
+                if (connection.getResponseCode() / 100 == 2) {
+                    String text = new String(connection.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                    copy.getParentFile().mkdirs();
+                    FileUtils.writeStringToFile(copy, text, StandardCharsets.UTF_8);
+                    return text;
+                }
+                Constants.LOG.warn("Could not load {}: HTTP {}", requestURL, connection.getResponseCode());
+            } finally {
+                connection.disconnect();
             }
-        } catch (IOException e) {
-            e.printStackTrace();
+        } catch (Exception e) {
+            Constants.LOG.warn("Could not load {}: {}", requestURL, e.toString());
+        }
+        try {
+            if (copy.isFile()) return FileUtils.readFileToString(copy, StandardCharsets.UTF_8);
+        } catch (IOException ignored) {
         }
         return "";
     }
@@ -180,7 +199,7 @@ public class CommonClass {
     }
 
     public static List<Emoji> readCategory(String cat) throws YamlException {
-        YamlReader categoryReader = new YamlReader(new StringReader(readStringFromURL("https://raw.githubusercontent.com/InnovativeOnlineIndustries/emojiful-assets/1.20-plus/" + cleanURL(cat))));
+        YamlReader categoryReader = new YamlReader(new StringReader(readStringFromURL(Constants.assetsUrl() + cleanURL(cat))));
         return Lists.newArrayList(categoryReader.read(Emoji[].class));
     }
 
@@ -196,11 +215,17 @@ public class CommonClass {
             // first wipe datapack emojis
             e.getValue().removeIf(Emoji::worldBased);
             // then let the category be wiped if no emojis left in it
-            return e.getKey().isEmpty();
+            return e.getValue().isEmpty();
         });
         if (Services.CONFIG.loadDatapack()) {
             RecipeType<EmojiRecipe> emojiRecipeRecipeType = Services.PLATFORM.getRecipeType();
             List<EmojiRecipe> emojiList = manager.getAllRecipesFor(emojiRecipeRecipeType).stream().map(RecipeHolder::value).toList();
+            Set<String> builtInAliases = Constants.EMOJI_LIST.stream()
+                    .flatMap(emoji -> emoji.strings.stream())
+                    .map(alias -> alias.toLowerCase(Locale.ROOT))
+                    .collect(Collectors.toSet());
+            List<Emoji> serverEmojis = new ArrayList<>();
+            int newCategoryIndex = 0;
             for (EmojiRecipe emojiRecipe : emojiList) {
                 EmojiFromGithub emoji = new EmojiFromGithub();
                 emoji.name = emojiRecipe.getName();
@@ -209,14 +234,26 @@ public class CommonClass {
                 emoji.location = emojiRecipe.getName();
                 emoji.url = emojiRecipe.getUrl();
                 emoji.worldBased = true;
-                Constants.EMOJI_MAP.computeIfAbsent(emojiRecipe.getCategory(), s -> new ArrayList<>()).add(emoji);
-                Constants.EMOJI_LIST.add(emoji);
-                if (ClientEmojiHandler.CATEGORIES.stream().noneMatch(emojiCategory -> emojiCategory.name().equalsIgnoreCase(emojiRecipe.getCategory().toLowerCase()))) {
-                    ClientEmojiHandler.CATEGORIES.add(0, new EmojiCategory(emojiRecipe.getCategory(), true));
+                if (builtInAliases.contains(emoji.strings.get(0).toLowerCase(Locale.ROOT))) {
+                    Constants.LOG.info("Server emoji {} replaces the built-in emoji with the same code", emoji.strings.get(0));
+                }
+                // Categories are matched case-insensitively so "Cats" and "cats" do not split into two.
+                String category = Constants.EMOJI_MAP.keySet().stream()
+                        .filter(existing -> existing.equalsIgnoreCase(emojiRecipe.getCategory()))
+                        .findFirst().orElse(emojiRecipe.getCategory());
+                Constants.EMOJI_MAP.computeIfAbsent(category, s -> new ArrayList<>()).add(emoji);
+                serverEmojis.add(emoji);
+                if (ClientEmojiHandler.CATEGORIES.stream().noneMatch(emojiCategory -> emojiCategory.name().equalsIgnoreCase(category))) {
+                    // keep server categories in the order the server defines them, ahead of built-in ones
+                    ClientEmojiHandler.CATEGORIES.add(newCategoryIndex++, new EmojiCategory(category, true));
                 }
             }
+            // Server emojis go first: when a code matches both a server and a built-in emoji, the first one in
+            // this list wins, and the server owner's choice should take priority.
+            Constants.EMOJI_LIST.addAll(0, serverEmojis);
             ClientEmojiHandler.indexEmojis();
             EmojiFontHelper.clearCache();
+            com.hrznstudio.emojiful.render.EmojiTextureCache.prefetch(serverEmojis.stream().map(Emoji::getUrl).toList());
         }
     }
 

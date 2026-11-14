@@ -21,6 +21,7 @@ public class ClientEmojiHandler {
     public static int lineAmount;
 
     public static void setup() {
+        com.hrznstudio.emojiful.render.EmojiTextureCache.warmUp();
         new Thread(() -> {
             preInitEmojis();
             indexEmojis();
@@ -66,7 +67,7 @@ public class ClientEmojiHandler {
 
     private static void loadCustomEmojis() {
         try {
-            YamlReader reader = new YamlReader(new StringReader(CommonClass.readStringFromURL("https://raw.githubusercontent.com/InnovativeOnlineIndustries/emojiful-assets/1.20-plus/Categories.yml")));
+            YamlReader reader = new YamlReader(new StringReader(CommonClass.readStringFromURL(Constants.assetsUrl() + "Categories.yml")));
             ArrayList<String> categories = (ArrayList<String>) reader.read();
             for (String category : categories) {
                 CATEGORIES.add(new EmojiCategory(category.replace(".yml", ""), false));

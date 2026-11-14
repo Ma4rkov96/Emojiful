@@ -9,7 +9,6 @@ public class EmojiFromGithub extends Emoji {
         return url;
     }
 
-
     @Override
     public String toString() {
         return "EmojiFromGithub{" +
@@ -21,11 +20,6 @@ public class EmojiFromGithub extends Emoji {
                 ", version=" + version +
                 ", sort=" + sort +
                 ", worldBased=" + worldBased +
-                ", deleteOldTexture=" + deleteOldTexture +
-                ", img=" + img +
-                ", frames=" + frames +
-                ", finishedLoading=" + finishedLoading +
-                ", loadedTextures=" + loadedTextures +
                 '}';
     }
 }

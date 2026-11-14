@@ -18,7 +18,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.concurrent.ExecutionException;
 
 
@@ -34,86 +33,88 @@ public class FontRendererMixin {
         return EmojiFontHelper.prepareForWrapping(text);
     }
 
-    @Inject(method = "drawInBatch8xOutline",  at = @At("HEAD"), cancellable = true)
-    private void drawInBatch8xOutline(FormattedCharSequence reorderingProcessor, float x, float y, int color, int colorBack, Matrix4f matrix, MultiBufferSource buffer, int packedLight, CallbackInfo ci){
-        if (reorderingProcessor != null) {
-            EmojiFontHelper.ParsedSequence parsed = EmojiFontHelper.parseSequence(reorderingProcessor);
-            if (parsed.sequence() != reorderingProcessor || !parsed.emojis().isEmpty()) {
-                color = (color & -67108864) == 0 ? color | -16777216 : color;
-                Matrix4f matrix4f = new Matrix4f(matrix);
-                EmojiFontHelper.EmojiCharacterRenderer fontrenderer$characterrenderer = new EmojiFontHelper.EmojiCharacterRenderer(parsed.emojis(), buffer, x, y, color, false, matrix4f, false, packedLight);
-                parsed.sequence().accept(fontrenderer$characterrenderer);
-                ci.cancel();
+    /** Glowing sign text: 8 outline passes (emojis skipped, as vanilla skips nothing but draws them in one colour) and a main pass. */
+    @Inject(method = "drawInBatch8xOutline", at = @At("HEAD"), cancellable = true)
+    private void drawInBatch8xOutline(FormattedCharSequence sequence, float x, float y, int color, int outlineColor, Matrix4f matrix, MultiBufferSource buffer, int packedLight, CallbackInfo ci) {
+        if (sequence == null) return;
+        EmojiFontHelper.ParsedSequence parsed = EmojiFontHelper.parseSequence(sequence);
+        if (!parsed.customRender()) return;
+
+        int outline = adjustColor(outlineColor);
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                if (dx == 0 && dy == 0) continue;
+                EmojiFontHelper.EmojiCharacterRenderer pass = new EmojiFontHelper.EmojiCharacterRenderer(parsed.emojis(), buffer, x, y, outline, false, matrix, Font.DisplayMode.NORMAL, packedLight).outline(dx, dy);
+                parsed.sequence().accept(pass);
             }
         }
+        EmojiFontHelper.EmojiCharacterRenderer main = new EmojiFontHelper.EmojiCharacterRenderer(parsed.emojis(), buffer, x, y, adjustColor(color), false, matrix, Font.DisplayMode.POLYGON_OFFSET, packedLight);
+        parsed.sequence().accept(main);
+        main.finish(0, x);
+        ci.cancel();
     }
 
     @Inject(method = "renderText(Ljava/lang/String;FFIZLorg/joml/Matrix4f;Lnet/minecraft/client/renderer/MultiBufferSource;Lnet/minecraft/client/gui/Font$DisplayMode;II)F", at = @At("HEAD"), cancellable = true)
     private void renderText(String text, float x, float y, int color, boolean isShadow, Matrix4f matrix, MultiBufferSource buffer, Font.DisplayMode displayMode, int colorBackgroundIn, int packedLight, CallbackInfoReturnable<Float> cir) {
-        if (text.isEmpty()){
+        if (text == null || text.isEmpty()) {
             return;
         }
-        HashMap<Integer, Emoji> emojis = new LinkedHashMap<>();
+        Pair<String, HashMap<Integer, Emoji>> parsed;
         try {
-            Pair<String, HashMap<Integer, Emoji>> cache = EmojiFontHelper.RECENT_STRINGS.get(text);
-            text = cache.getLeft();
-            emojis = cache.getRight();
+            parsed = EmojiFontHelper.RECENT_STRINGS.get(text);
         } catch (ExecutionException e) {
-            e.printStackTrace();
+            return;
         }
-        if (!emojis.isEmpty() || text.startsWith(EmojiFontHelper.SCAPED_STRING)) {
-            text = text.replace(EmojiFontHelper.SCAPED_STRING, "");
-            EmojiFontHelper.EmojiCharacterRenderer fontrenderer$characterrenderer = new EmojiFontHelper.EmojiCharacterRenderer(emojis, buffer, x, y, color, isShadow, matrix, displayMode == Font.DisplayMode.SEE_THROUGH, packedLight);
-            StringDecomposer.iterateFormatted(text, Style.EMPTY, fontrenderer$characterrenderer);
-            cir.setReturnValue(fontrenderer$characterrenderer.finish(colorBackgroundIn, x));
+        String shown = parsed.getLeft();
+        if (!parsed.getRight().isEmpty() || shown.startsWith(EmojiFontHelper.SCAPED_STRING)) {
+            if (shown.startsWith(EmojiFontHelper.SCAPED_STRING)) shown = shown.substring(EmojiFontHelper.SCAPED_STRING.length());
+            EmojiFontHelper.EmojiCharacterRenderer renderer = new EmojiFontHelper.EmojiCharacterRenderer(parsed.getRight(), buffer, x, y, color, isShadow, matrix, displayMode, packedLight);
+            StringDecomposer.iterateFormatted(shown, Style.EMPTY, renderer);
+            cir.setReturnValue(renderer.finish(colorBackgroundIn, x));
         }
-
     }
 
-
     @Inject(method = "drawInBatch(Lnet/minecraft/util/FormattedCharSequence;FFIZLorg/joml/Matrix4f;Lnet/minecraft/client/renderer/MultiBufferSource;Lnet/minecraft/client/gui/Font$DisplayMode;II)I", at = @At("HEAD"), cancellable = true)
-    public void drawInBatch(FormattedCharSequence reorderingProcessor, float x, float y, int color, boolean isShadow, Matrix4f matrix, MultiBufferSource buffer, Font.DisplayMode displayMode, int colorBackgroundIn, int packedLight, CallbackInfoReturnable<Integer> cir) {
-        if (reorderingProcessor != null) {
-            EmojiFontHelper.ParsedSequence parsed = EmojiFontHelper.parseSequence(reorderingProcessor);
-            if (parsed.sequence() != reorderingProcessor || !parsed.emojis().isEmpty()) {
-                color = (color & -67108864) == 0 ? color | -16777216 : color;
-                Matrix4f matrix4f = new Matrix4f(matrix);
+    public void drawInBatch(FormattedCharSequence sequence, float x, float y, int color, boolean isShadow, Matrix4f matrix, MultiBufferSource buffer, Font.DisplayMode displayMode, int colorBackgroundIn, int packedLight, CallbackInfoReturnable<Integer> cir) {
+        if (sequence == null) return;
+        EmojiFontHelper.ParsedSequence parsed = EmojiFontHelper.parseSequence(sequence);
+        if (!parsed.customRender()) return;
 
-                if (isShadow) {
-                    EmojiFontHelper.EmojiCharacterRenderer fontrenderer$characterrenderer = new EmojiFontHelper.EmojiCharacterRenderer(parsed.emojis(), buffer, x, y, color, true, matrix4f, displayMode == Font.DisplayMode.SEE_THROUGH, packedLight);
-                    parsed.sequence().accept(fontrenderer$characterrenderer);
-                    fontrenderer$characterrenderer.finish(colorBackgroundIn, x);
-                    matrix4f.translate(EmojiFontHelper.SHADOW_OFFSET);
-                }
-                EmojiFontHelper.EmojiCharacterRenderer fontrenderer$characterrenderer = new EmojiFontHelper.EmojiCharacterRenderer(parsed.emojis(), buffer, x, y, color, false, matrix4f, displayMode == Font.DisplayMode.SEE_THROUGH, packedLight);
-                parsed.sequence().accept(fontrenderer$characterrenderer);
-                cir.setReturnValue((int) fontrenderer$characterrenderer.finish(colorBackgroundIn, x));
-            }
+        color = adjustColor(color);
+        Matrix4f matrix4f = new Matrix4f(matrix);
+        if (isShadow) {
+            EmojiFontHelper.EmojiCharacterRenderer shadow = new EmojiFontHelper.EmojiCharacterRenderer(parsed.emojis(), buffer, x, y, color, true, matrix4f, displayMode, packedLight);
+            parsed.sequence().accept(shadow);
+            shadow.finish(colorBackgroundIn, x);
+            matrix4f.translate(EmojiFontHelper.SHADOW_OFFSET);
         }
-        //return super.drawInBatch(reorderingProcessor, x, y, color, isShadow, matrix, buffer, displayMode, colorBackgroundIn, packedLight);
+        EmojiFontHelper.EmojiCharacterRenderer renderer = new EmojiFontHelper.EmojiCharacterRenderer(parsed.emojis(), buffer, x, y, color, false, matrix4f, displayMode, packedLight);
+        parsed.sequence().accept(renderer);
+        cir.setReturnValue((int) renderer.finish(colorBackgroundIn, x) + (isShadow ? 1 : 0));
     }
 
     @Inject(method = "width(Ljava/lang/String;)I", at = @At("HEAD"), cancellable = true)
-    private void widthString(String text, CallbackInfoReturnable<Integer> cir){
+    private void widthString(String text, CallbackInfoReturnable<Integer> cir) {
         if (!EmojiFontHelper.BYPASS.get()) {
-            Font thisObject = (Font)(Object)this;
-            cir.setReturnValue(EmojiFontHelper.width(thisObject, text));
+            cir.setReturnValue(EmojiFontHelper.width((Font) (Object) this, text));
         }
     }
 
     @Inject(method = "width(Lnet/minecraft/util/FormattedCharSequence;)I", at = @At("HEAD"), cancellable = true)
-    private void widthFormattedCharSeq(FormattedCharSequence processor, CallbackInfoReturnable<Integer> cir){
+    private void widthFormattedCharSeq(FormattedCharSequence processor, CallbackInfoReturnable<Integer> cir) {
         if (!EmojiFontHelper.BYPASS.get()) {
-            Font thisObject = (Font)(Object)this;
-            cir.setReturnValue(EmojiFontHelper.width(thisObject, processor));
+            cir.setReturnValue(EmojiFontHelper.width((Font) (Object) this, processor));
         }
     }
 
     @Inject(method = "width(Lnet/minecraft/network/chat/FormattedText;)I", at = @At("HEAD"), cancellable = true)
-    private void widthFormattedText(FormattedText formattedText, CallbackInfoReturnable<Integer> cir){
+    private void widthFormattedText(FormattedText formattedText, CallbackInfoReturnable<Integer> cir) {
         if (!EmojiFontHelper.BYPASS.get()) {
-            Font thisObject = (Font)(Object)this;
-            cir.setReturnValue(EmojiFontHelper.width(thisObject, formattedText.getString()));
+            cir.setReturnValue(EmojiFontHelper.width((Font) (Object) this, formattedText));
         }
+    }
+
+    private static int adjustColor(int color) {
+        return (color & 0xFC000000) == 0 ? color | 0xFF000000 : color;
     }
 }
