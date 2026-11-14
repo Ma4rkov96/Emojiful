@@ -175,7 +175,7 @@ public final class EmojiTextureCache {
             }
         }
         if (released > 0) {
-            Constants.LOG.info("Unloaded {} emoji textures not shown for {} min", released, minutes);
+            Constants.LOG.debug("Unloaded {} emoji textures not shown for {} min", released, minutes);
         }
     }
 

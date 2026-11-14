@@ -235,7 +235,7 @@ public class CommonClass {
                 emoji.url = emojiRecipe.getUrl();
                 emoji.worldBased = true;
                 if (builtInAliases.contains(emoji.strings.get(0).toLowerCase(Locale.ROOT))) {
-                    Constants.LOG.info("Server emoji {} replaces the built-in emoji with the same code", emoji.strings.get(0));
+                    Constants.LOG.debug("Server emoji {} replaces the built-in emoji with the same code", emoji.strings.get(0));
                 }
                 // Categories are matched case-insensitively so "Cats" and "cats" do not split into two.
                 String category = Constants.EMOJI_MAP.keySet().stream()

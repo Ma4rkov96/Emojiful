@@ -104,7 +104,8 @@ public class EmojiSuggestionHelper extends IDrawableGuiListener {
                 for (final Suggestion suggestion : suggestions.getList())
                     i = Math.max(i, Minecraft.getInstance().font.width(EmojiFontHelper.SCAPED_STRING + suggestion.getText()));
                 final int j = Minecraft.getInstance().font.width(this.chatScreen.input.getValue().substring(0, this.chatScreen.input.getCursorPosition() - suggestions.getRange().getLength() + 2));
-                this.suggestions = new EmojiSuggestions(j, this.chatScreen.height - 12, i, suggestions);
+                // Text is drawn after the 12px emoji icon (+1 px padding), so account for that offset plus right padding
+                this.suggestions = new EmojiSuggestions(j, this.chatScreen.height - 12, i + 12 + 1 + 2, suggestions);
             }
         }
     }
