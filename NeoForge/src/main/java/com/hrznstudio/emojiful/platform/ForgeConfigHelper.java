@@ -14,6 +14,7 @@ public class ForgeConfigHelper implements IConfigHelper {
     public static ModConfigSpec.BooleanValue loadDatapack;
     public static ModConfigSpec.BooleanValue loadGifEmojis;
     public static ModConfigSpec.BooleanValue prefetchServerEmojis;
+    public static ModConfigSpec.IntValue unloadAfterMinutes;
     public static ModConfigSpec.ConfigValue<String> customAssetsUrl;
     public static ModConfigSpec.ConfigValue<String> manifestUrl;
 
@@ -34,6 +35,7 @@ public class ForgeConfigHelper implements IConfigHelper {
         loadTwemoji = builder.comment("Loads Twemojis used in sites like Twitter and Discord").translation("emojiful.midnightconfig.loadTwemoji").define("twemoji", false);
         loadCustom = builder.comment("Loads custom emojis provided by Emojiful").translation("emojiful.midnightconfig.enableLoadCustom").define("custom", true);
         loadDatapack = builder.comment("Loads datapack emojis provided by the server you join").translation("emojiful.midnightconfig.enableLoadDatapack").define("datapack", true);
+        unloadAfterMinutes = builder.comment("Free the video memory of emojis not shown for this many minutes; they reload from the disk cache when needed. 0 = never").defineInRange("unload_after_minutes", 10, 0, 1440);
         prefetchServerEmojis = builder.comment("Download all emojis of the server you join in the background, so they appear without a loading icon").define("prefetch_server_emojis", true);
         customAssetsUrl = builder.comment("Base URL of the built-in emoji set (Categories.yml, category files and images)").define("custom_assets_url", com.hrznstudio.emojiful.Constants.DEFAULT_ASSETS_URL);
         manifestUrl = builder.comment("Manifest with SHA-1 of every emoji file, used to validate the cache with a single request. Empty to disable").define("manifest_url", com.hrznstudio.emojiful.Constants.DEFAULT_MANIFEST_URL);
@@ -94,6 +96,11 @@ public class ForgeConfigHelper implements IConfigHelper {
     @Override
     public boolean loadDatapack() {
         return loadDatapack.get();
+    }
+
+    @Override
+    public int unloadAfterMinutes() {
+        return unloadAfterMinutes.get();
     }
 
     @Override

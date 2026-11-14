@@ -32,6 +32,11 @@ public interface IConfigHelper {
         return com.hrznstudio.emojiful.Constants.DEFAULT_MANIFEST_URL;
     }
 
+    /** Release the GPU memory of emojis not shown for this many minutes (they reload from disk). 0 keeps them. */
+    default int unloadAfterMinutes() {
+        return 10;
+    }
+
     /** Download all server emojis in the background after joining, so they show up without a loading icon. */
     default boolean prefetchServerEmojis() {
         return true;

@@ -39,7 +39,7 @@ public class CommonClass {
      * when the host is unreachable, so the built-in set still appears offline or when GitHub is blocked.
      */
     public static String readStringFromURL(String requestURL) {
-        File copy = new File("emojiful/cache/v2/text", Integer.toHexString(requestURL.hashCode()) + ".txt");
+        File copy = new File(new File(com.hrznstudio.emojiful.render.EmojiTextureCache.cacheRoot(), "text"), Integer.toHexString(requestURL.hashCode()) + ".txt");
         try {
             java.net.HttpURLConnection connection = (java.net.HttpURLConnection) java.net.URI.create(requestURL).toURL().openConnection();
             connection.setConnectTimeout(10_000);

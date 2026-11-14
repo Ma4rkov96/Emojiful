@@ -5,6 +5,7 @@ import com.hrznstudio.emojiful.api.Emoji;
 import com.hrznstudio.emojiful.image.EmojiAtlas;
 import com.hrznstudio.emojiful.image.ImageDecoder;
 import com.hrznstudio.emojiful.platform.Services;
+import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
@@ -81,7 +82,17 @@ public final class EmojiTextureCache {
     private EmojiTextureCache() {
     }
 
-    public enum State { LOADING, READY, FAILED }
+    /** UNLOADED: the texture was released after not being shown for a while; it is reloaded from disk on demand. */
+    public enum State { LOADING, READY, FAILED, UNLOADED }
+
+    private static final long SWEEP_INTERVAL_SECONDS = 30;
+    /** Runs the unload check on a timer, so it also happens while no emoji is on screen. */
+    private static final java.util.concurrent.ScheduledExecutorService SWEEPER = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "Emojiful Texture Sweeper");
+        thread.setDaemon(true);
+        thread.setPriority(Thread.MIN_PRIORITY);
+        return thread;
+    });
 
     public static final class Entry {
         final String url;
@@ -91,6 +102,7 @@ public final class EmojiTextureCache {
         volatile EmojiAtlas atlas;
         volatile ResourceLocation failureTexture = Emoji.error_texture;
         volatile long retryAt;
+        volatile long lastUsed = System.currentTimeMillis();
         int attempts;
 
         Entry(String url) {
@@ -107,6 +119,7 @@ public final class EmojiTextureCache {
     public static EmojiRenderInfo renderInfo(String url) {
         if (url == null || url.isBlank()) return EmojiRenderInfo.full(Emoji.error_texture);
         Entry entry = get(url);
+        entry.lastUsed = System.currentTimeMillis();
         EmojiAtlas atlas = entry.atlas;
         if (atlas != null) {
             int frame = Services.CONFIG.loadGifEmojis() ? atlas.frameAt(Util.getMillis()) : 0;
@@ -125,7 +138,15 @@ public final class EmojiTextureCache {
             schedule(e);
             return e;
         });
-        if (entry.state == State.FAILED && entry.attempts < MAX_ATTEMPTS && System.currentTimeMillis() >= entry.retryAt) {
+        if (entry.state == State.UNLOADED) {
+            synchronized (entry) {
+                if (entry.state == State.UNLOADED) {
+                    entry.state = State.LOADING;
+                    entry.attempts = 0;
+                    schedule(entry);
+                }
+            }
+        } else if (entry.state == State.FAILED && entry.attempts < MAX_ATTEMPTS && System.currentTimeMillis() >= entry.retryAt) {
             synchronized (entry) {
                 if (entry.state == State.FAILED) {
                     entry.state = State.LOADING;
@@ -134,6 +155,28 @@ public final class EmojiTextureCache {
             }
         }
         return entry;
+    }
+
+    /**
+     * Frees the GPU memory of emojis that have not been drawn for a while (render thread only). The image
+     * stays in the disk cache and is decoded again the next time the emoji is shown.
+     */
+    private static void unloadUnused(long now) {
+        int minutes = Services.CONFIG.unloadAfterMinutes();
+        if (minutes <= 0) return;
+        long limit = minutes * 60_000L;
+        int released = 0;
+        for (Entry entry : ENTRIES.values()) {
+            if (entry.state == State.READY && entry.atlas != null && now - entry.lastUsed > limit) {
+                Minecraft.getInstance().getTextureManager().release(entry.location);
+                entry.atlas = null;
+                entry.state = State.UNLOADED;
+                released++;
+            }
+        }
+        if (released > 0) {
+            Constants.LOG.info("Unloaded {} emoji textures not shown for {} min", released, minutes);
+        }
     }
 
     private static void schedule(Entry entry) {
@@ -285,6 +328,11 @@ public final class EmojiTextureCache {
     /** Called once at startup so the manifest is ready before most emojis are shown. */
     public static void warmUp() {
         PREFETCH.execute(EmojiManifest::refreshIfStale);
+        // GL resources may only be released on the render thread, so the timer just posts the check there.
+        SWEEPER.scheduleWithFixedDelay(() -> {
+            Minecraft minecraft = Minecraft.getInstance();
+            if (minecraft != null) minecraft.execute(() -> unloadUnused(System.currentTimeMillis()));
+        }, SWEEP_INTERVAL_SECONDS, SWEEP_INTERVAL_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
     }
 
     static String sha1(byte[] data) {
@@ -377,7 +425,17 @@ public final class EmojiTextureCache {
     }
 
     private static File cacheFile(String key) {
-        return new File(new File(Minecraft.getInstance().gameDirectory, "emojiful/cache/v2"), key);
+        return new File(cacheRoot(), key);
+    }
+
+    /**
+     * {@code <game directory>/emojiful/cache/v2}. Always relative to the game directory, not to the process
+     * working directory, which some launchers set to a different folder.
+     */
+    public static File cacheRoot() {
+        Minecraft minecraft = Minecraft.getInstance();
+        File game = minecraft != null && minecraft.gameDirectory != null ? minecraft.gameDirectory : new File(".");
+        return new File(game, "emojiful/cache/v2");
     }
 
     static String hash(String url) {

@@ -48,7 +48,7 @@ public final class EmojiManifest {
             hashes = Map.of();
             return;
         }
-        File copy = new File("emojiful/cache/v2/manifest.json");
+        File copy = new File(EmojiTextureCache.cacheRoot(), "manifest.json");
         String text = null;
         try {
             HttpURLConnection connection = (HttpURLConnection) URI.create(url).toURL().openConnection();
