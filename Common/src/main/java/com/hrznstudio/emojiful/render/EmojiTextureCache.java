@@ -103,6 +103,8 @@ public final class EmojiTextureCache {
         volatile ResourceLocation failureTexture = Emoji.error_texture;
         volatile long retryAt;
         volatile long lastUsed = System.currentTimeMillis();
+        /** GUI pixel size the texture is being rebuilt for after a GUI scale change, 0 if none. */
+        volatile int rebuildTarget;
         int attempts;
 
         Entry(String url) {
@@ -122,6 +124,12 @@ public final class EmojiTextureCache {
         entry.lastUsed = System.currentTimeMillis();
         EmojiAtlas atlas = entry.atlas;
         if (atlas != null) {
+            int target = guiTarget();
+            if (atlas.target != target && entry.rebuildTarget != target && entry.state == State.READY) {
+                // GUI scale changed: rebuild from the disk cache; the old texture is shown until then
+                entry.rebuildTarget = target;
+                schedule(entry);
+            }
             int frame = Services.CONFIG.loadGifEmojis() ? atlas.frameAt(Util.getMillis()) : 0;
             float cw = 1f / atlas.cols;
             float ch = 1f / atlas.rows;
@@ -351,7 +359,7 @@ public final class EmojiTextureCache {
     }
 
     private static void publish(Entry entry, byte[] data) throws IOException {
-        EmojiAtlas.Builder builder = new EmojiAtlas.Builder();
+        EmojiAtlas.Builder builder = new EmojiAtlas.Builder(guiTarget());
         ImageDecoder.decode(data, Services.CONFIG.loadGifEmojis(), builder);
         EmojiAtlas atlas = builder.build();
         // pixel conversion happens here, on the loader thread; the render thread only uploads
@@ -362,6 +370,16 @@ public final class EmojiTextureCache {
             entry.atlas = atlas;
             entry.state = State.READY;
         });
+    }
+
+    /**
+     * Pixels an emoji covers on screen in chat: its size in GUI units times the GUI scale. The atlas has a
+     * mip level of exactly this size, which chat samples 1:1.
+     */
+    static int guiTarget() {
+        Minecraft minecraft = Minecraft.getInstance();
+        double scale = minecraft != null && minecraft.getWindow() != null ? minecraft.getWindow().getGuiScale() : 3.0;
+        return (int) Math.round(EmojiFontHelper.EMOJI_ADVANCE * Math.max(1.0, scale));
     }
 
     private record Download(int status, byte[] data, boolean notModified, String etag, String lastModified) {

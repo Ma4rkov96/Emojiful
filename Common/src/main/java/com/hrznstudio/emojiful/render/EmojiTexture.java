@@ -26,8 +26,8 @@ public class EmojiTexture extends AbstractTexture {
     public EmojiTexture(EmojiAtlas atlas) {
         this.width = atlas.width;
         this.height = atlas.height;
-        this.levels = new NativeImage[EmojiAtlas.MAX_LEVEL + 1];
-        for (int level = 0; level <= EmojiAtlas.MAX_LEVEL; level++) {
+        this.levels = new NativeImage[atlas.levelCount];
+        for (int level = 0; level < atlas.levelCount; level++) {
             int w = width >> level;
             int h = height >> level;
             int[] argb = atlas.levels[level];
@@ -55,7 +55,7 @@ public class EmojiTexture extends AbstractTexture {
     private void upload() {
         NativeImage[] images = levels;
         if (images == null) return;
-        TextureUtil.prepareImage(getId(), EmojiAtlas.MAX_LEVEL, width, height);
+        TextureUtil.prepareImage(getId(), images.length - 1, width, height);
         for (int level = 0; level < images.length; level++) {
             images[level].upload(level, 0, 0, 0, 0, width >> level, height >> level, false, true, true, false);
         }
@@ -63,8 +63,9 @@ public class EmojiTexture extends AbstractTexture {
     }
 
     /**
-     * Render types call this before drawing; always use trilinear minification (smooth when the emoji
-     * is drawn smaller than the source) and nearest magnification (crisp pixel art when enlarged).
+     * Render types call this before drawing; always trilinear. In chat the texture is sampled 1:1 at the
+     * GUI level of the atlas, so this filtering is exact there; it only matters for signs and name tags.
+     * Pixel art is already enlarged with hard pixels on the CPU, so linear magnification stays crisp.
      */
     @Override
     public void setFilter(boolean blur, boolean mipmap) {
@@ -75,7 +76,7 @@ public class EmojiTexture extends AbstractTexture {
 
     private static void applyFilter() {
         GlStateManager._texParameter(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR_MIPMAP_LINEAR);
-        GlStateManager._texParameter(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+        GlStateManager._texParameter(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
     }
 
     @Override
