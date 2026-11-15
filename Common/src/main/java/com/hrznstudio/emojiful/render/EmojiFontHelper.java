@@ -307,7 +307,10 @@ public class EmojiFontHelper {
             return MARKERS.get(new MarkerKey(style, emoji), () -> {
                 // A distinct instance with the same look, click and hover as the surrounding text. It is
                 // recognised by identity, so no tooltip is attached and the text's own hover event is kept.
-                Style marker = cloneStyle(style);
+                // The insertion is set to the emoji code so the marker is also unequal by value: vanilla
+                // (SubStringSource) merges adjacent characters whose styles are equal() and keeps only the
+                // first instance, which made ":a::b::c:" render as three ":a:".
+                Style marker = cloneStyle(style, emojiInsertion(emoji));
                 WRAPPED_EMOJIS.put(marker, emoji);
                 return marker;
             });
@@ -329,9 +332,19 @@ public class EmojiFontHelper {
         }
     }
 
-    private static Style cloneStyle(Style style) {
+    private static String emojiInsertion(Emoji emoji) {
+        String code = null;
+        try {
+            code = emoji.getShorterString();
+        } catch (RuntimeException ignored) {
+        }
+        if (code == null || code.isEmpty()) code = ":" + emoji.name + ":";
+        return code;
+    }
+
+    private static Style cloneStyle(Style style, String insertion) {
         if (STYLE_CONSTRUCTOR == null) {
-            return style;
+            return style.withInsertion(insertion);
         }
         try {
             return STYLE_CONSTRUCTOR.newInstance(
@@ -343,7 +356,7 @@ public class EmojiFontHelper {
                     style.isObfuscated() ? Boolean.TRUE : null,
                     style.getClickEvent(),
                     style.getHoverEvent(),
-                    style.getInsertion(),
+                    insertion,
                     style.getFont()
             );
         } catch (ReflectiveOperationException exception) {
