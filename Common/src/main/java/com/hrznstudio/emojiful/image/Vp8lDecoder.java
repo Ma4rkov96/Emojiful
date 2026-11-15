@@ -53,6 +53,7 @@ public final class Vp8lDecoder {
         int height = decoder.in.read(14) + 1;
         decoder.in.read(1); // alpha_is_used: only a hint
         if (decoder.in.read(3) != 0) throw new IOException("Unsupported VP8L version");
+        ImageDecoder.checkSize(width, height);
         return new Result(width, height, decoder.decodeImageStream(width, height, true));
     }
 

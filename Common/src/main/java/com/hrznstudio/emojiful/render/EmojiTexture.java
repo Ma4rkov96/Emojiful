@@ -13,8 +13,8 @@ import org.lwjgl.opengl.GL11;
  * One GL texture holding every frame of an emoji (see {@link EmojiAtlas}), with mipmaps.
  * <p>
  * The pixel data is converted to native images on the loader thread (constructor), so the render
- * thread only performs the GL upload. The native images are kept so the texture survives resource
- * reloads (F3+T), which call {@link #load} again, and are freed in {@link #close}.
+ * thread only performs the GL upload. The native images are freed right after the upload: a resource
+ * reload (F3+T) calls {@link #load} again on the same, still valid GL texture, which then has nothing to do.
  */
 public class EmojiTexture extends AbstractTexture {
 
@@ -60,6 +60,9 @@ public class EmojiTexture extends AbstractTexture {
             images[level].upload(level, 0, 0, 0, 0, width >> level, height >> level, false, true, true, false);
         }
         applyFilter();
+        // the GPU has the pixels now; do not keep a second copy in native memory
+        levels = null;
+        for (NativeImage image : images) image.close();
     }
 
     /**

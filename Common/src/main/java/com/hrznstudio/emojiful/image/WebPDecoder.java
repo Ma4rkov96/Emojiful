@@ -41,6 +41,7 @@ public final class WebPDecoder {
         int vp8x = pos + 8;
         int canvasWidth = 1 + u24(data, vp8x + 4);
         int canvasHeight = 1 + u24(data, vp8x + 7);
+        ImageDecoder.checkSize(canvasWidth, canvasHeight);
         if ((data[vp8x] & FLAG_ANIMATION) == 0) {
             BufferedImage image = decodeBitstream(data, chunkEnd(data, pos), end, canvasWidth, canvasHeight);
             sink.accept(image, GifDecoder.DEFAULT_DELAY_MS);
@@ -147,6 +148,7 @@ public final class WebPDecoder {
         }
         try (ImageInputStream input = new MemoryCacheImageInputStream(new ByteArrayInputStream(file.toByteArray()))) {
             reader.setInput(input, true, true);
+            ImageDecoder.checkSize(reader.getWidth(0), reader.getHeight(0));
             return reader.read(0);
         } finally {
             reader.dispose();

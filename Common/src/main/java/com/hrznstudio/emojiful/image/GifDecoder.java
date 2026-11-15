@@ -56,6 +56,7 @@ public final class GifDecoder {
                 BufferedImage frame;
                 IIOMetadataNode metadata;
                 try {
+                    ImageDecoder.checkSize(reader.getWidth(index), reader.getHeight(index));
                     frame = reader.read(index);
                     metadata = (IIOMetadataNode) reader.getImageMetadata(index).getAsTree(IMAGE_FORMAT);
                 } catch (IndexOutOfBoundsException end) {
@@ -78,6 +79,7 @@ public final class GifDecoder {
                         width = x + frame.getWidth();
                         height = y + frame.getHeight();
                     }
+                    ImageDecoder.checkSize(width, height);
                     canvas = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
                 }
 

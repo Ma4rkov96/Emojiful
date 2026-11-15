@@ -31,6 +31,12 @@ public class ClientEmojiHandler {
     }
 
     public static void indexEmojis() {
+        synchronized (Constants.EMOJI_LIST) {
+            indexEmojisLocked();
+        }
+    }
+
+    private static void indexEmojisLocked() {
         lineAmount = 0;
         ALL_EMOJIS = Constants.EMOJI_LIST.stream().map(emoji -> emoji.strings).flatMap(Collection::stream).collect(Collectors.toList());
         SORTED_EMOJIS_FOR_SELECTION = new LinkedHashMap<>();
@@ -59,7 +65,9 @@ public class ClientEmojiHandler {
         if (Services.CONFIG.loadCustom()) loadCustomEmojis();
         //loadGithubEmojis();
         if (Services.CONFIG.loadTwemoji()){
-            CATEGORIES.addAll(Arrays.asList("Smileys & Emotion", "Animals & Nature", "Food & Drink", "Activities", "Travel & Places", "Objects", "Symbols", "Flags").stream().map(s -> new EmojiCategory(s, false)).collect(Collectors.toList()));
+            synchronized (Constants.EMOJI_LIST) {
+                CATEGORIES.addAll(Arrays.asList("Smileys & Emotion", "Animals & Nature", "Food & Drink", "Activities", "Travel & Places", "Objects", "Symbols", "Flags").stream().map(s -> new EmojiCategory(s, false)).collect(Collectors.toList()));
+            }
             loadTwemojis();
         }
         if (Services.CONFIG.getProfanityFilter()) ProfanityFilter.loadConfigs();
@@ -70,12 +78,15 @@ public class ClientEmojiHandler {
             YamlReader reader = new YamlReader(new StringReader(CommonClass.readStringFromURL(Constants.assetsUrl() + "Categories.yml")));
             ArrayList<String> categories = (ArrayList<String>) reader.read();
             for (String category : categories) {
-                CATEGORIES.add(new EmojiCategory(category.replace(".yml", ""), false));
                 List<Emoji> emojis = CommonClass.readCategory(category);
                 emojis.forEach(emoji -> emoji.location = CommonClass.cleanURL(emoji.location));
                 emojis.forEach(emoji -> emoji.name = "custom_" + emoji.name);
-                Constants.EMOJI_LIST.addAll(emojis);
-                Constants.EMOJI_MAP.put(category.replace(".yml", ""), emojis);
+                // the server recipe sync may change these collections at the same time (client thread)
+                synchronized (Constants.EMOJI_LIST) {
+                    CATEGORIES.add(new EmojiCategory(category.replace(".yml", ""), false));
+                    Constants.EMOJI_LIST.addAll(emojis);
+                    Constants.EMOJI_MAP.put(category.replace(".yml", ""), emojis);
+                }
             }
         } catch (Exception e) {
             Constants.error = true;
@@ -85,7 +96,9 @@ public class ClientEmojiHandler {
 
     public static void loadTwemojis() {
         try {
-            for (JsonElement element : CommonClass.readJsonFromUrl("https://raw.githubusercontent.com/iamcal/emoji-data/master/emoji.json").getAsJsonArray()) {
+            JsonElement all = CommonClass.readJsonFromUrl("https://raw.githubusercontent.com/iamcal/emoji-data/master/emoji.json");
+            synchronized (Constants.EMOJI_LIST) {
+            for (JsonElement element : all.getAsJsonArray()) {
                 if (element.getAsJsonObject().get("has_img_twitter").getAsBoolean()) {
                     EmojiFromTwitmoji emoji = new EmojiFromTwitmoji();
                     emoji.name = "twemojis_" + element.getAsJsonObject().get("short_name").getAsString();
@@ -107,6 +120,7 @@ public class ClientEmojiHandler {
             }
             ClientEmojiHandler.EMOJI_WITH_TEXTS.sort(Comparator.comparingInt(o -> o.sort));
             Constants.EMOJI_MAP.values().forEach(emojis -> emojis.sort(Comparator.comparingInt(o -> o.sort)));
+            }
         } catch (Exception e) {
             Constants.error = true;
             Constants.LOG.error("Emojiful found an error while loading", e);

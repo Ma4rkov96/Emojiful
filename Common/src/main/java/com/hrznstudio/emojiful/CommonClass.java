@@ -39,9 +39,10 @@ public class CommonClass {
      * when the host is unreachable, so the built-in set still appears offline or when GitHub is blocked.
      */
     public static String readStringFromURL(String requestURL) {
-        File copy = new File(new File(com.hrznstudio.emojiful.render.EmojiTextureCache.cacheRoot(), "text"), Integer.toHexString(requestURL.hashCode()) + ".txt");
+        File copy = new File(new File(com.hrznstudio.emojiful.render.EmojiTextureCache.cacheRoot(), "text"), com.hrznstudio.emojiful.render.EmojiTextureCache.hash(requestURL) + ".txt");
         try {
-            java.net.HttpURLConnection connection = (java.net.HttpURLConnection) java.net.URI.create(requestURL).toURL().openConnection();
+            // same proxy as the game (and as emoji image downloads)
+            java.net.HttpURLConnection connection = (java.net.HttpURLConnection) java.net.URI.create(requestURL).toURL().openConnection(net.minecraft.client.Minecraft.getInstance().getProxy());
             connection.setConnectTimeout(10_000);
             connection.setReadTimeout(20_000);
             connection.setRequestProperty("User-Agent", "Emojiful (Minecraft mod)");
@@ -208,6 +209,17 @@ public class CommonClass {
     }
 
     public static void onRecipesUpdated(RecipeManager manager) {
+        List<Emoji> serverEmojis;
+        // The built-in set may still be loading on its own thread; it changes these collections under the same lock.
+        synchronized (Constants.EMOJI_LIST) {
+            serverEmojis = updateServerEmojis(manager);
+        }
+        if (serverEmojis != null) {
+            com.hrznstudio.emojiful.render.EmojiTextureCache.prefetch(serverEmojis.stream().map(Emoji::getUrl).toList());
+        }
+    }
+
+    private static List<Emoji> updateServerEmojis(RecipeManager manager) {
         ClientEmojiHandler.CATEGORIES.removeIf(EmojiCategory::worldBased);
         Constants.EMOJI_LIST.removeIf(Emoji::worldBased);
         // lambda so we dont iterate twice
@@ -220,7 +232,8 @@ public class CommonClass {
         if (Services.CONFIG.loadDatapack()) {
             RecipeType<EmojiRecipe> emojiRecipeRecipeType = Services.PLATFORM.getRecipeType();
             List<EmojiRecipe> emojiList = manager.getAllRecipesFor(emojiRecipeRecipeType).stream().map(RecipeHolder::value).toList();
-            Set<String> builtInAliases = Constants.EMOJI_LIST.stream()
+            // only needed for a debug message
+            Set<String> builtInAliases = !Constants.LOG.isDebugEnabled() ? Set.of() : Constants.EMOJI_LIST.stream()
                     .flatMap(emoji -> emoji.strings.stream())
                     .map(alias -> alias.toLowerCase(Locale.ROOT))
                     .collect(Collectors.toSet());
@@ -253,8 +266,9 @@ public class CommonClass {
             Constants.EMOJI_LIST.addAll(0, serverEmojis);
             ClientEmojiHandler.indexEmojis();
             EmojiFontHelper.clearCache();
-            com.hrznstudio.emojiful.render.EmojiTextureCache.prefetch(serverEmojis.stream().map(Emoji::getUrl).toList());
+            return serverEmojis;
         }
+        return null;
     }
 
 

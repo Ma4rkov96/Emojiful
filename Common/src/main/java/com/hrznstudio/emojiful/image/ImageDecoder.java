@@ -1,9 +1,12 @@
 package com.hrznstudio.emojiful.image;
 
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.Iterator;
 
 /**
  * Picks a decoder from the file contents (magic bytes) rather than the URL extension, so links
@@ -31,12 +34,33 @@ public final class ImageDecoder {
             case GIF -> GifDecoder.decode(data, animate, sink);
             case WEBP -> WebPDecoder.decode(data, animate, sink);
             default -> {
-                BufferedImage image = ImageIO.read(new ByteArrayInputStream(data));
-                if (image == null) {
-                    throw new IOException("Unsupported image format (" + sniff(data) + ")");
+                BufferedImage image;
+                try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(data))) {
+                    Iterator<ImageReader> readers = ImageIO.getImageReaders(input);
+                    if (!readers.hasNext()) {
+                        throw new IOException("Unsupported image format (" + sniff(data) + ")");
+                    }
+                    ImageReader reader = readers.next();
+                    try {
+                        reader.setInput(input, true, true);
+                        checkSize(reader.getWidth(0), reader.getHeight(0));
+                        image = reader.read(0);
+                    } finally {
+                        reader.dispose();
+                    }
                 }
                 sink.accept(WebPDecoder.toArgb(image), GifDecoder.DEFAULT_DELAY_MS);
             }
+        }
+    }
+
+    /** Largest accepted side of a decoded image or canvas; larger files could exhaust memory when decoded. */
+    public static final int MAX_SIDE = 4096;
+
+    /** Rejects images whose decoded size would need excessive memory, before anything is allocated. */
+    public static void checkSize(int width, int height) throws IOException {
+        if (width <= 0 || height <= 0 || width > MAX_SIDE || height > MAX_SIDE) {
+            throw new IOException("Image is too large (" + width + "x" + height + ", max " + MAX_SIDE + ")");
         }
     }
 }

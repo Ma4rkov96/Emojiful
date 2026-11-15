@@ -3,14 +3,10 @@ package com.hrznstudio.emojiful.render;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.hrznstudio.emojiful.CommonClass;
 import com.hrznstudio.emojiful.Constants;
 import com.hrznstudio.emojiful.platform.Services;
-import org.apache.commons.io.FileUtils;
 
-import java.io.File;
-import java.net.HttpURLConnection;
-import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -48,30 +44,10 @@ public final class EmojiManifest {
             hashes = Map.of();
             return;
         }
-        File copy = new File(EmojiTextureCache.cacheRoot(), "manifest.json");
-        String text = null;
+        // fetched with timeouts and the game's proxy; the last good copy is used when the host is unreachable
+        String text = CommonClass.readStringFromURL(url);
         try {
-            HttpURLConnection connection = (HttpURLConnection) URI.create(url).toURL().openConnection();
-            connection.setConnectTimeout(10_000);
-            connection.setReadTimeout(20_000);
-            connection.setRequestProperty("User-Agent", "Emojiful (Minecraft mod)");
-            try {
-                if (connection.getResponseCode() / 100 == 2) {
-                    text = new String(connection.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-                    copy.getParentFile().mkdirs();
-                    FileUtils.writeStringToFile(copy, text, StandardCharsets.UTF_8);
-                } else {
-                    Constants.LOG.warn("Emoji manifest {} returned HTTP {}", url, connection.getResponseCode());
-                }
-            } finally {
-                connection.disconnect();
-            }
-        } catch (Exception exception) {
-            Constants.LOG.warn("Could not load emoji manifest {}: {}", url, exception.toString());
-        }
-        try {
-            if (text == null && copy.isFile()) text = FileUtils.readFileToString(copy, StandardCharsets.UTF_8);
-            if (text != null) {
+            if (!text.isEmpty()) {
                 hashes = parse(text, url);
                 Constants.LOG.info("Emoji manifest: {} files", hashes.size());
             }

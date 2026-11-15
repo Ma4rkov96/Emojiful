@@ -127,15 +127,12 @@ public class EmojiFontHelper {
     }
 
     private static synchronized EmojiMatcher rebuildMatcher() {
-        List<Emoji> snapshot = null;
-        for (int attempt = 0; attempt < 5 && snapshot == null; attempt++) {
-            try {
-                snapshot = new ArrayList<>(Constants.EMOJI_LIST);
-            } catch (RuntimeException concurrentModification) {
-                // the list is being filled by the loader thread; try again
-            }
+        List<Emoji> snapshot;
+        // the loader thread and the recipe sync change the list under this lock
+        synchronized (Constants.EMOJI_LIST) {
+            snapshot = new ArrayList<>(Constants.EMOJI_LIST);
         }
-        EmojiMatcher built = snapshot == null ? EmojiMatcher.EMPTY : EmojiMatcher.build(snapshot);
+        EmojiMatcher built = EmojiMatcher.build(snapshot);
         matcher = built;
         return built;
     }
@@ -273,44 +270,61 @@ public class EmojiFontHelper {
     public static FormattedText prepareForWrapping(FormattedText text) {
         if (text == null) return null;
         String whole = text.getString();
-        if (whole.startsWith(SCAPED_STRING) || findEmojis(whole).isEmpty()) {
+        if (whole.startsWith(SCAPED_STRING)) {
+            return text;
+        }
+        // Matched on the whole text, like rendering does, so codes split over several components (gradient or
+        // rainbow text with one component per character) are measured and wrapped as one emoji too.
+        List<EmojiMatcher.Match> matches = findEmojis(whole);
+        if (matches.isEmpty()) {
             return text;
         }
         List<FormattedText> parts = new ArrayList<>();
+        int[] state = {0, 0}; // offset of the current segment in the whole text, index of the next match
         text.visit((style, contents) -> {
-            addWrappedParts(parts, contents, style);
+            if (contents != null) {
+                addWrappedParts(parts, contents, style, state, matches);
+                state[0] += contents.length();
+            }
             return Optional.empty();
         }, Style.EMPTY);
         return FormattedText.composite(parts);
     }
 
-    private static void addWrappedParts(List<FormattedText> parts, String contents, Style style) {
-        if (contents == null || contents.isEmpty() || contents.startsWith(SCAPED_STRING)) {
-            parts.add(FormattedText.of(contents == null ? "" : contents, style));
-            return;
-        }
+    private static void addWrappedParts(List<FormattedText> parts, String contents, Style style, int[] state, List<EmojiMatcher.Match> matches) {
+        int base = state[0];
+        int length = contents.length();
         int cursor = 0;
-        for (EmojiMatcher.Match match : findEmojis(contents)) {
-            if (match.start() > cursor) {
-                parts.add(FormattedText.of(contents.substring(cursor, match.start()), style));
+        while (cursor < length) {
+            EmojiMatcher.Match match = state[1] < matches.size() ? matches.get(state[1]) : null;
+            int start = match == null ? length : Math.min(length, match.start() - base);
+            if (start < cursor) {
+                // the rest of an emoji whose placeholder was added in an earlier segment
+                int end = match.end() - base;
+                cursor = Math.min(length, end);
+                if (end <= length) state[1]++;
+                continue;
             }
+            if (start > cursor) {
+                parts.add(FormattedText.of(contents.substring(cursor, start), style));
+            }
+            if (match == null || start >= length) break;
             parts.add(FormattedText.of(PLACEHOLDER_STRING, marker(style, match.emoji())));
-            cursor = match.end();
-        }
-        if (cursor < contents.length()) {
-            parts.add(FormattedText.of(contents.substring(cursor), style));
+            int end = match.end() - base;
+            cursor = Math.min(length, end);
+            if (end <= length) state[1]++;
         }
     }
 
     private static Style marker(Style style, Emoji emoji) {
         try {
             return MARKERS.get(new MarkerKey(style, emoji), () -> {
-                // A distinct instance with the same look, click and hover as the surrounding text. It is
-                // recognised by identity, so no tooltip is attached and the text's own hover event is kept.
-                // The insertion is set to the emoji code so the marker is also unequal by value: vanilla
-                // (SubStringSource) merges adjacent characters whose styles are equal() and keeps only the
-                // first instance, which made ":a::b::c:" render as three ":a:".
-                Style marker = cloneStyle(style, emojiInsertion(emoji));
+                // A distinct instance with the same look, click, hover and insertion as the surrounding text. It
+                // is recognised by identity, so no tooltip is attached and the text's own events are kept.
+                // Its font is a per-emoji key so the marker is also unequal by value: vanilla (SubStringSource)
+                // merges adjacent characters whose styles are equal() and keeps only the first instance, which
+                // made ":a::b::c:" render as three ":a:". The font is never used to draw the placeholder.
+                Style marker = cloneStyle(style, markerFont(emoji));
                 WRAPPED_EMOJIS.put(marker, emoji);
                 return marker;
             });
@@ -332,19 +346,19 @@ public class EmojiFontHelper {
         }
     }
 
-    private static String emojiInsertion(Emoji emoji) {
+    private static ResourceLocation markerFont(Emoji emoji) {
         String code = null;
         try {
             code = emoji.getShorterString();
         } catch (RuntimeException ignored) {
         }
         if (code == null || code.isEmpty()) code = ":" + emoji.name + ":";
-        return code;
+        return ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "emoji_marker/" + EmojiTextureCache.hash(code));
     }
 
-    private static Style cloneStyle(Style style, String insertion) {
+    private static Style cloneStyle(Style style, ResourceLocation font) {
         if (STYLE_CONSTRUCTOR == null) {
-            return style.withInsertion(insertion);
+            return style.withFont(font);
         }
         try {
             return STYLE_CONSTRUCTOR.newInstance(
@@ -356,8 +370,8 @@ public class EmojiFontHelper {
                     style.isObfuscated() ? Boolean.TRUE : null,
                     style.getClickEvent(),
                     style.getHoverEvent(),
-                    insertion,
-                    style.getFont()
+                    style.getInsertion(),
+                    font
             );
         } catch (ReflectiveOperationException exception) {
             Constants.LOG.error("Could not clone Minecraft text style", exception);

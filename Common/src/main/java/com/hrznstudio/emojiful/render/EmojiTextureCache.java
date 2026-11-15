@@ -106,6 +106,10 @@ public final class EmojiTextureCache {
         /** GUI pixel size the texture is being rebuilt for after a GUI scale change, 0 if none. */
         volatile int rebuildTarget;
         int attempts;
+        /** A load() is queued or running; guarded by the entry's monitor. */
+        boolean running;
+        /** Another load was requested while one was running; it runs right after. */
+        boolean rerun;
 
         Entry(String url) {
             this.url = url;
@@ -187,8 +191,30 @@ public final class EmojiTextureCache {
         }
     }
 
+    /** Never runs two loads of one entry at once: a request during a load runs once that load has finished. */
     private static void schedule(Entry entry) {
-        EXECUTOR.execute(() -> load(entry));
+        synchronized (entry) {
+            if (entry.running) {
+                entry.rerun = true;
+                return;
+            }
+            entry.running = true;
+        }
+        EXECUTOR.execute(() -> {
+            boolean again = true;
+            while (again) {
+                try {
+                    load(entry);
+                } catch (Throwable error) {
+                    Constants.LOG.error("Could not load emoji image {}", entry.url, error);
+                }
+                synchronized (entry) {
+                    again = entry.rerun;
+                    entry.rerun = false;
+                    entry.running = again;
+                }
+            }
+        });
     }
 
     private static void load(Entry entry) {
@@ -456,7 +482,7 @@ public final class EmojiTextureCache {
         return new File(game, "emojiful/cache/v2");
     }
 
-    static String hash(String url) {
+    public static String hash(String url) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-1").digest(url.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(digest).substring(0, 24);
